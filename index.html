@@ -1,5 +1,8 @@
 <!DOCTYPE html>
 <html style="height: 100vh">
+  <head>
+    <title>supercoil</title>
+  </head>
   <body style="margin: 0; padding: 0; height: 100%; width: 100%; display: flex">
     <textarea
       id="code"
@@ -73,7 +76,7 @@ Node.prototype.out = function() {
   let code = "";
   const nodes = {};
   const getId = (input) =>
-    typeof input === "number" ? input : \`n\${sorted.indexOf(input)}\`;
+    ["number","string"].includes(typeof input) ? input : \`n\${sorted.indexOf(input)}\`;
   const visited = new Set();
   function dfs(node) {
     if (typeof node !== "object" || visited.has(node)) {
@@ -91,8 +94,8 @@ Node.prototype.out = function() {
   }
   dfs(graph);
   code += \`\nreturn \${getId(graph)}\`;
-  let update = new Function("nodes", code);
-  let tick = () => update(nodes);
+  let update = new Function("nodes","time", code);
+  let tick = (t) => update(nodes,t);
   return tick;
 }
 //
@@ -166,6 +169,84 @@ const lpf = register(
       this.s0 = v0;
       this.s1 = v1;
       return s;
+    }
+  }
+);
+function lerp(x, y0, y1) {
+  if (x >= 1) return y1;
+
+  return y0 + x * (y1 - y0);
+}
+const adsr = register(
+  "adsr",
+  class extends Node {
+    state = "off";
+    startTime = 0;
+    startVal = 0;
+
+    constructor(type, ins) {
+      ins.unshift("time");
+      super(type, ins);
+    }
+    update(curTime, gate, attack, decay, susVal, release) {
+      switch (this.state) {
+        case "off": {
+          if (gate > 0) {
+            this.state = "attack";
+            this.startTime = curTime;
+            this.startVal = 0;
+          }
+          return 0;
+        }
+        case "attack": {
+          let time = curTime - this.startTime;
+          if (time > attack) {
+            this.state = "decay";
+            this.startTime = curTime;
+            return 1;
+          }
+          return lerp(time / attack, this.startVal, 1);
+        }
+        case "decay": {
+          let time = curTime - this.startTime;
+          let curVal = lerp(time / decay, 1, susVal);
+          if (gate <= 0) {
+            this.state = "release";
+            this.startTime = curTime;
+            this.startVal = curVal;
+            return curVal;
+          }
+          if (time > decay) {
+            this.state = "sustain";
+            this.startTime = curTime;
+            return susVal;
+          }
+          return curVal;
+        }
+        case "sustain": {
+          if (gate <= 0) {
+            this.state = "release";
+            this.startTime = curTime;
+            this.startVal = susVal;
+          }
+          return susVal;
+        }
+        case "release": {
+          let time = curTime - this.startTime;
+          if (time > release) {
+            this.state = "off";
+            return 0;
+          }
+          let curVal = lerp(time / release, this.startVal, 0);
+          if (gate > 0) {
+            this.state = "attack";
+            this.startTime = curTime;
+            this.startVal = curVal;
+          }
+          return curVal;
+        }
+      }
+      throw "invalid envelope state";
     }
   }
 );
@@ -246,7 +327,10 @@ registerProcessor('${name}', MyProcessor);
         console.log("loaded code from url!");
       }
       const initialCode =
-        urlCode || `let dsp = saw(55).lpf(sine(.5).range(.4,.8)).out()`;
+        urlCode ||
+        `let dsp = saw(55).lpf(sine(.5).range(.4,.8))
+.mul(impulse(4).adsr(.1,.1,.1,.1))
+.out()`;
       input.value = initialCode;
 
       input.addEventListener("keydown", (e) => {
