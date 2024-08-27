@@ -9,16 +9,13 @@ You can use it here: <https://felixroos.github.io/supercoil/>
 Here's an example of an audio graph:
 
 ```js
-let dsp = saw(55) // sawtooth wave at 55Hz
-  .lpf(
-    // low pass filter
-    sine(2).range(0.2, 0.8), // 2Hz lfo -> cutoff
-    0.2 // resonance
-  )
-  .out(); // .out() has to come last
+let dsp = saw(55).lpf(sine(2).range(0.2, 0.8), 0.2).out();
 ```
 
-## Nodes
+In this example, we have a sawtooth wave at 55Hz going into a filter that is modulated with a sine wave.
+You have to start with `let dsp =`, then define your graph and end with `.out()`.
+
+## API
 
 - `saw(freq)` sawtooth oscillator
 - `sine(freq)` sine oscillator
@@ -28,3 +25,4 @@ let dsp = saw(55) // sawtooth wave at 55Hz
 - `range(input, min, max)` scales bipolar signal to range
 - `impulse(freq)` single sample oscillator
 - `lpf(input, freq, res)` low pass filter
+- more to come
