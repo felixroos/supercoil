@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html style="height: 100vh">
+  <body style="margin: 0; padding: 0; height: 100%; width: 100%; display: flex">
+    <textarea
+      id="code"
+      spellcheck="false"
+      style="
+        width: 100%;
+        font-size: 24px;
+        color: white;
+        background: black;
+        border: 0;
+        outline: none;
+        padding: 10px;
+      "
+    ></textarea>
+    <button
+      style="position: fixed; right: 0; bottom: 0; font-size: 30px"
+      id="playButton"
+    >
+      play
+    </button>
+    <button
+      style="
+        display: none;
+        position: fixed;
+        right: 0;
+        bottom: 0;
+        font-size: 30px;
+      "
+      id="stopButton"
+    >
+      stop
+    </button>
+    <script>
+      // audio init
+      console.log(
+        `Welcome to supercoil, a minimal audio graph livecoding editor..
+  
+Click into the page and press ctrl+enter to evaluate the code!
+  
+Read https://github.com/felixroos/supercoil to find out more!
+  `
+      );
+      let ac;
+      document.addEventListener("click", function initAudio() {
+        ac = new AudioContext();
+        ac.resume();
+        document.removeEventListener("click", initAudio);
+      });
+
+      async function getSimpleDynamicWorklet(ac, code, hz = ac.sampleRate) {
+        const name = `simple-custom-${Date.now()}`;
+        let srcSampleRate = hz || ac.sampleRate;
+        // let sampleRatio = srcSampleRate / ac.sampleRate;
+        const workletCode = `
+// graph lib
+class Node {
+  constructor(type, ins) {
+    this.type = type;
+    this.ins = ins;
+  }
+}
+let register = (type, nodeClass = Node) => {
+  Node.prototype[type] = function (...args) {
+    return new nodeClass(type, [this, ...args]);
+  };
+  return (...args) => new nodeClass(type, args);
+};
+Node.prototype.out = function() {
+  const graph = this;
+  const sorted = [];
+  let code = "";
+  const nodes = {};
+  const getId = (input) =>
+    typeof input === "number" ? input : \`n\${sorted.indexOf(input)}\`;
+  const visited = new Set();
+  function dfs(node) {
+    if (typeof node !== "object" || visited.has(node)) {
+      return;
+    }
+    visited.add(node);
+    for (let i in node.ins) {
+      dfs(node.ins[i]);
+    }
+    sorted.push(node);
+    const args = node.ins.map(getId).join(",");
+    const nodeId = getId(node);
+    nodes[nodeId] = node;
+    code += \`\nconst \${nodeId} = nodes['\${nodeId}'].update(\${args}); // \${node.type}\`;
+  }
+  dfs(graph);
+  code += \`\nreturn \${getId(graph)}\`;
+  let update = new Function("nodes", code);
+  let tick = () => update(nodes);
+  return tick;
+}
+//
+
+let ISR = 1 / 44100;
+const sine = register(
+  "sine",
+  class extends Node {
+    phase = 0;
+    update = (freq) => Math.sin((this.phase += 2 * Math.PI * freq * ISR));
+  }
+);
+const add = register(
+  "add",
+  class extends Node {
+    update = (a, b) => a + b;
+  }
+);
+const mul = register(
+  "mul",
+  class extends Node {
+    update = (a, b) => a * b;
+  }
+);
+const dust = register(
+  "dust",
+  class extends Node {
+    update = (density) => (Math.random() < density * ISR ? Math.random() : 0);
+  }
+);
+const range = register(
+  "range",
+  class extends Node {
+    update(input, min, max) {
+      const uni = (input + 1) * 0.5;
+      return uni * (max - min) + min;
+    }
+  }
+);
+const impulse = register(
+  "impulse",
+  class extends Node {
+    phase = 1;
+    update(freq) {
+      this.phase += ISR * freq;
+      let v = this.phase >= 1 ? 1 : 0;
+      this.phase = this.phase % 1;
+      return v;
+    }
+  }
+);
+
+const lpf = register(
+  "lpf",
+  class extends Node {
+    s0 = 0;
+    s1 = 0;
+    update(s, cutoff, resonance = 0) {
+      // Out of bound values can produce NaNs
+      cutoff = Math.min(cutoff, 1);
+      resonance = Math.max(resonance, 0);
+      var c = Math.pow(0.5, (1 - cutoff) / 0.125);
+      var r = Math.pow(0.5, (resonance + 0.125) / 0.125);
+      var mrc = 1 - r * c;
+      var v0 = this.s0;
+      var v1 = this.s1;
+      // Apply the filter to the sample
+      v0 = mrc * v0 - c * v1 + c * s;
+      v1 = mrc * v1 + c * v0;
+      s = v1;
+      this.s0 = v0;
+      this.s1 = v1;
+      return s;
+    }
+  }
+);
+
+const saw = register("saw", class extends Node { 
+phase = 0
+update = (freq) => {
+  this.phase += ISR * freq;
+  return (this.phase % 1) * 2 - 1;
+}
+})
+// end of lib
+
+${code};
+
+class MyProcessor extends AudioWorkletProcessor {
+  constructor() {
+    super();
+    this.t = 0;
+    this.stopped = false;
+    this.port.onmessage = (e) => {
+      if(e.data==='stop') {
+        this.stopped = true;
+      }
+    };
+  }
+  process(inputs, outputs, parameters) {
+    const output = outputs[0];
+    for (let i = 0; i < output[0].length; i++) {
+      const out = dsp(this.t / ${ac.sampleRate});
+      output.forEach((channel) => {
+        channel[i] = out;
+      });
+      this.t++;
+    }
+    return !this.stopped;
+  }
+}
+registerProcessor('${name}', MyProcessor);
+  `;
+        const base64String = btoa(workletCode);
+        const dataURL = `data:text/javascript;base64,${base64String}`;
+        await ac.audioWorklet.addModule(dataURL);
+        const node = new AudioWorkletNode(ac, name);
+        const stop = () => node.port.postMessage("stop");
+        return { node, stop };
+      }
+
+      // control
+      let worklet,
+        hz = 44100;
+      const stop = async () => {
+        worklet?.stop();
+        worklet?.node?.disconnect();
+        stopButton.style.display = "none";
+        playButton.style.display = "block";
+      };
+
+      const update = async (code) => {
+        ac = ac || new AudioContext();
+        await ac.resume();
+        stop();
+
+        worklet = await getSimpleDynamicWorklet(ac, code, hz);
+        worklet.node.connect(ac.destination);
+        window.location.hash = "#" + btoa(code);
+        stopButton.style.display = "block";
+        playButton.style.display = "none";
+      };
+
+      // ui
+      const input = document.getElementById("code");
+      const playButton = document.getElementById("playButton");
+      const stopButton = document.getElementById("stopButton");
+      let urlCode = window.location.hash.slice(1);
+      if (urlCode) {
+        urlCode = atob(urlCode);
+        console.log("loaded code from url!");
+      }
+      const initialCode =
+        urlCode || `let dsp = saw(55).lpf(sine(.5).range(.4,.8)).out()`;
+      input.value = initialCode;
+
+      input.addEventListener("keydown", (e) => {
+        if (e.ctrlKey && e.key === "Enter") {
+          update(input.value);
+        } else if (e.ctrlKey && e.key === ".") {
+          stop();
+        }
+      });
+
+      playButton.addEventListener("click", () => update(input.value));
+      stopButton.addEventListener("click", () => stop());
+    </script>
+  </body>
+</html>
