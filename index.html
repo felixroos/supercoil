@@ -70,7 +70,7 @@ let register = (type, nodeClass = Node) => {
   };
   return (...args) => new nodeClass(type, args);
 };
-Node.prototype.out = function() {
+Node.prototype.compile = function() {
   const graph = this;
   const sorted = [];
   let code = "";
@@ -98,9 +98,24 @@ Node.prototype.out = function() {
   let tick = (t) => update(nodes,t);
   return tick;
 }
+let dsp;
+Node.prototype.out = function() {
+  dsp = this.compile()
+}
 //
 
 let ISR = 1 / 44100;
+const pulse = register(
+  "pulse",
+  class extends Node {
+    phase = 0;
+    update(freq, duty = 0.5) {
+      this.phase += ISR * freq;
+      let cyclePos = this.phase % 1;
+      return cyclePos < duty ? 1 : -1;
+    }
+  }
+);
 const sine = register(
   "sine",
   class extends Node {
