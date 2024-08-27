@@ -28,4 +28,5 @@ You can chain any of the below functions. Make sure to end with `.out()`.
 - `range(input, min, max)` scales bipolar signal to range
 - `impulse(freq)` single sample oscillator
 - `lpf(input, freq, res)` low pass filter
+- `delay(input, time)` delay signal by time
 - more to come

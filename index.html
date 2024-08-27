@@ -104,7 +104,9 @@ Node.prototype.out = function() {
 }
 //
 
-let ISR = 1 / 44100;
+const SAMPLE_RATE = 44100;
+const ISR = 1 / SAMPLE_RATE;
+
 const pulse = register(
   "pulse",
   class extends Node {
@@ -265,6 +267,33 @@ const adsr = register(
     }
   }
 );
+export class Delay extends Node {
+  writeIdx = 0;
+  readIdx = 0;
+  constructor(type, ins) {
+    super(type, ins);
+    const MAX_DELAY_TIME = 10;
+    this.buffer = new Float32Array(MAX_DELAY_TIME * SAMPLE_RATE);
+    this.buffer.fill(0);
+  }
+  write(s, delayTime) {
+    this.writeIdx = (this.writeIdx + 1) % this.buffer.length;
+    this.buffer[this.writeIdx] = s;
+    // Calculate how far in the past to read
+    let numSamples = Math.min(
+      Math.floor(SAMPLE_RATE * delayTime),
+      this.buffer.length - 1
+    );
+    this.readIdx = this.writeIdx - numSamples;
+    // If past the start of the buffer, wrap around
+    if (this.readIdx < 0) this.readIdx += this.buffer.length;
+  }
+  update(input, delayTime) {
+    this.write(input, delayTime);
+    return this.buffer[this.readIdx];
+  }
+}
+const delay = register("delay", Delay)
 
 const saw = register("saw", class extends Node { 
 phase = 0
@@ -343,7 +372,7 @@ registerProcessor('${name}', MyProcessor);
       }
       const initialCode =
         urlCode ||
-        `let dsp = saw(55).lpf(sine(.5).range(.4,.8))
+        `saw(55).lpf(sine(.5).range(.4,.8))
 .mul(impulse(4).adsr(.1,.1,.1,.1))
 .out()`;
       input.value = initialCode;
