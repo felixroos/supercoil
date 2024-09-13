@@ -52,10 +52,8 @@ Read https://github.com/felixroos/supercoil to find out more!
         document.removeEventListener("click", initAudio);
       });
 
-      async function getSimpleDynamicWorklet(ac, code, hz = ac.sampleRate) {
+      async function getSimpleDynamicWorklet(ac, code) {
         const name = `simple-custom-${Date.now()}`;
-        let srcSampleRate = hz || ac.sampleRate;
-        // let sampleRatio = srcSampleRate / ac.sampleRate;
         const workletCode = `
 // graph lib
 class Node {
@@ -340,8 +338,7 @@ registerProcessor('${name}', MyProcessor);
       }
 
       // control
-      let worklet,
-        hz = 44100;
+      let worklet;
       const stop = async () => {
         worklet?.stop();
         worklet?.node?.disconnect();
@@ -354,7 +351,7 @@ registerProcessor('${name}', MyProcessor);
         await ac.resume();
         stop();
 
-        worklet = await getSimpleDynamicWorklet(ac, code, hz);
+        worklet = await getSimpleDynamicWorklet(ac, code);
         worklet.node.connect(ac.destination);
         window.location.hash = "#" + btoa(code);
         stopButton.style.display = "block";
