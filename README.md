@@ -19,14 +19,50 @@ You can chain any of the below functions. Make sure to end with `.out()`.
 
 ## API
 
-- `saw(freq)` sawtooth oscillator
-- `sine(freq)` sine oscillator
-- `pulse(freq, duty)` pulse oscillator
-- `add(a, b)` add
-- `mul(a, b)` multiply
-- `dust(density)` random single sample impulses
-- `range(input, min, max)` scales bipolar signal to range
-- `impulse(freq)` single sample oscillator
-- `lpf(input, freq, res)` low pass filter
-- `delay(input, time)` delay signal by time
-- more to come
+- [x] `saw(freq)` sawtooth oscillator
+- [x] `sine(freq)` sine oscillator
+- [x] `pulse(freq, duty)` pulse oscillator
+- [x] `range(input, min, max)` scales bipolar signal to range
+- [x] `delay(input, time)` delay signal by time
+- [ ] ad
+- [x] `add(a, b)` add
+- [x] `adsr(input, a,d,s,r)` ADSR envelope
+- [ ] and
+- [ ] apply
+- [ ] ar
+- [ ] audioin
+- [ ] bpf
+- [ ] brown
+- [ ] bytebeat
+- [ ] cc
+- [ ] clockdiv
+- [ ] cos
+- [ ] debug
+- [ ] delay
+- [ ] distort
+- [ ] div
+- [x] `dust(density)` random single sample impulses
+- [ ] exp
+- [ ] floatbeat
+- [ ] fold
+- [ ] fork
+- [ ] greater
+- [ ] hold
+- [ ] hpf
+- [x] `impulse(freq)` single sample oscillator
+- [ ] lag
+- [ ] lfnoise
+- [ ] log
+- [x] `lpf(input, freq, res)` low pass filter
+- [ ] map
+- [ ] midicc
+- [ ] midifreq
+- [ ] midigate
+- [ ] midinote
+- [ ] mix
+- [ ] mod
+- [ ] module
+- [ ] mouseX
+- [x] `mul(a, b)` multiply
+- [ ]
+- more to come?
