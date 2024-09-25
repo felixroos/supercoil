@@ -55,26 +55,27 @@ Read https://github.com/felixroos/supercoil to find out more!
       async function getSimpleDynamicWorklet(ac, code) {
         const name = `simple-custom-${Date.now()}`;
         const workletCode = `
-// graph lib
 class Node {
   constructor(type, ins) {
     this.type = type;
-    this.ins = ins;
+    this.ins = ins.map(input => {
+      if(typeof input === 'function') {
+        return input(this); // lambda feedback
+      }
+      return input;
+    });
   }
 }
+
 let register = (type, nodeClass = Node) => {
   Node.prototype[type] = function (...args) {
     return new nodeClass(type, [this, ...args]);
   };
   return (...args) => new nodeClass(type, args);
 };
-Node.prototype.compile = function() {
-  const graph = this;
+
+function topoSort(graph) {
   const sorted = [];
-  let code = "";
-  const nodes = {};
-  const getId = (input) =>
-    ["number","string"].includes(typeof input) ? input : \`n\${sorted.indexOf(input)}\`;
   const visited = new Set();
   function dfs(node) {
     if (typeof node !== "object" || visited.has(node)) {
@@ -85,22 +86,30 @@ Node.prototype.compile = function() {
       dfs(node.ins[i]);
     }
     sorted.push(node);
-    const args = node.ins.map(getId).join(",");
-    const nodeId = getId(node);
-    nodes[nodeId] = node;
-    code += \`\nconst \${nodeId} = nodes['\${nodeId}'].update(\${args}); // \${node.type}\`;
   }
   dfs(graph);
-  code += \`\nreturn \${getId(graph)}\`;
-  let update = new Function("nodes","time", code);
-  let tick = (t) => update(nodes,t);
+  return sorted;
+}
+Node.prototype.compile = function() {
+  let nodes = topoSort(this);  
+  const getRegister = (input) => ["number","string"].includes(typeof input) ? input : \`r[\${nodes.indexOf(input)}]\`;
+  let code = "";
+  for(let id in nodes) {
+    const args = nodes[id].ins.map(getRegister).join(",");
+    code += \`\nr[\${id}] = nodes[\${id}].update(\${args}); // \${nodes[id].type}\`;
+  }
+  code += \`\nreturn \${getRegister(this)};\`;
+  console.log(code);
+  let update = new Function("nodes", "time", "r", code);
+  let r = new Array(nodes.length).fill(0);
+  let tick = (t) => update(nodes, t, r);
   return tick;
 }
+  
 let dsp;
 Node.prototype.out = function() {
   dsp = this.compile()
 }
-//
 
 const SAMPLE_RATE = sampleRate;
 const ISR = 1 / SAMPLE_RATE;
