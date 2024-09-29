@@ -58,12 +58,38 @@ Read https://github.com/felixroos/supercoil to find out more!
 class Node {
   constructor(type, ins) {
     this.type = type;
+    let maxExpansions = 1;
     this.ins = ins.map(input => {
-      if(typeof input === 'function') {
-        return input(this); // lambda feedback
+      input = this.parseInput(input);
+      if(input.type === 'poly') {
+        maxExpansions = Math.max(maxExpansions, input.ins.length);
       }
       return input;
     });
+    // multichannel expansion
+    if(maxExpansions > 1) {
+      this.type = 'poly';
+      this.ins = Array(maxExpansions).fill(0).map((_,i) => {
+        const clone = new this.constructor(type, []);
+        clone.ins = ins.map(input => {
+          input = clone.parseInput(input);
+          if(input.type === 'poly') {
+            return input.ins[i % input.ins.length];
+          }
+          return input;
+        });  
+        return clone;
+      });
+    }
+  }
+  parseInput(input) {
+    if(typeof input === 'function') {
+      input = input(this); // lambda feedback
+    }
+    if(Array.isArray(input)) {
+      input = new Node('poly', input); // interpret Arrays as poly nodes
+    }
+    return input;
   }
 }
 
@@ -78,8 +104,8 @@ function topoSort(graph) {
   const sorted = [];
   const visited = new Set();
   function dfs(node) {
-    if (typeof node !== "object" || visited.has(node)) {
-      return;
+    if (!(node instanceof Node) || visited.has(node)) {
+      return; // constant values or already visited nodes
     }
     visited.add(node);
     for (let i in node.ins) {
@@ -93,16 +119,25 @@ function topoSort(graph) {
 Node.prototype.compile = function() {
   let nodes = topoSort(this);  
   const getRegister = (input) => ["number","string"].includes(typeof input) ? input : \`r[\${nodes.indexOf(input)}]\`;
-  let code = "";
+  let lines = [];
   for(let id in nodes) {
     const args = nodes[id].ins.map(getRegister).join(",");
-    code += \`\nr[\${id}] = nodes[\${id}].update(\${args}); // \${nodes[id].type}\`;
+    lines.push(\`r[\${id}] = nodes[\${id}].update(\${args}); // \${nodes[id].type}\`);
   }
-  code += \`\nreturn \${getRegister(this)};\`;
+  let channels;
+  if(this.type === 'poly') {
+     channels = [this.ins[0], this.ins[1]];
+  } else {
+     channels = [this, this]
+  }
+  channels = channels.map(getRegister)
+  lines.push(\`o[0] = \${channels[0]}; // out 0\`);
+  lines.push(\`o[1] = \${channels[1]}; // out 1\`);
+  const code = lines.join(\`\\n\`);
   console.log(code);
-  let update = new Function("nodes", "time", "r", code);
+  let update = new Function("nodes", "time", "r", "o", code);
   let r = new Array(nodes.length).fill(0);
-  let tick = (t) => update(nodes, t, r);
+  let tick = (t, o) => update(nodes, t, r, o);
   return tick;
 }
   
@@ -318,6 +353,7 @@ class MyProcessor extends AudioWorkletProcessor {
     super();
     this.t = 0;
     this.stopped = false;
+    this.o = [0, 0];
     this.port.onmessage = (e) => {
       if(e.data==='stop') {
         this.stopped = true;
@@ -326,11 +362,12 @@ class MyProcessor extends AudioWorkletProcessor {
   }
   process(inputs, outputs, parameters) {
     const output = outputs[0];
-    for (let i = 0; i < output[0].length; i++) {
-      const out = dsp(this.t / ${ac.sampleRate});
-      output.forEach((channel) => {
-        channel[i] = out;
-      });
+    const outChannel0 = output[0];
+    const outChannel1 = output[1];
+    for (let i = 0; i < outChannel0.length; i++) {
+      dsp(this.t / ${ac.sampleRate}, this.o);
+      outChannel0[i] = this.o[0]; 
+      outChannel1[i] = this.o[1]; 
       this.t++;
     }
     return !this.stopped;
@@ -341,7 +378,9 @@ registerProcessor('${name}', MyProcessor);
         const base64String = btoa(workletCode);
         const dataURL = `data:text/javascript;base64,${base64String}`;
         await ac.audioWorklet.addModule(dataURL);
-        const node = new AudioWorkletNode(ac, name);
+        const node = new AudioWorkletNode(ac, name, {
+          outputChannelCount: [2],
+        });
         const stop = () => node.port.postMessage("stop");
         return { node, stop };
       }
